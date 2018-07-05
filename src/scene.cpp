@@ -765,6 +765,211 @@ void Scene::beginRender()
 	camera->beginRender();
 	settings.beginRender();
 	if (environment) environment->beginRender();
+    
+    bvh.build(nodes);
+}
+
+int BVH::recursiveBuild(std::vector<NodeInfo>& info, uint start, uint end) {
+
+    if(end - start == 1) {
+        BVHNode node;
+        node.bbox = info[start].bbox;
+        node.left = node.right = -1;
+        node.nodes.push_back(info[start].node);
+        nodes.push_back(node);
+        
+        return nodes.size() - 1;
+    }
+    
+
+    BBox centroidBbox;
+    centroidBbox.makeEmpty();
+    
+    for(auto i = start; i < end; ++i) {
+        centroidBbox.add(info[i].centroid);
+    }
+
+    Vector extents = centroidBbox.vmax - centroidBbox.vmin;
+    
+    auto splitAxis = (extents.x > extents.y && extents.x > extents.z)? 0 : ((extents.x > extents.y)? 2 : 1);
+    
+    static constexpr int bucketsCount = 15;   
+
+    struct BucketInfo {
+        int nodesCount;
+        BBox bbox;
+        
+        BucketInfo() : nodesCount(0) {bbox.makeEmpty();}
+    };
+    
+    BucketInfo buckets[bucketsCount];
+    
+    auto bucketExtent = (centroidBbox.vmax.v[splitAxis] - centroidBbox.vmin.v[splitAxis]) / bucketsCount;
+
+    for (auto i = start; i < end; ++i) {
+        int b = int((info[i].centroid.v[splitAxis] - centroidBbox.vmin.v[splitAxis]) / bucketExtent);
+        
+        if (b >= bucketsCount) 
+            b = bucketsCount - 1;
+        
+        if (b < 0)
+            b = 0;
+        
+        buckets[b].nodesCount++;
+        buckets[b].bbox.add(info[i].bbox.vmin);
+        buckets[b].bbox.add(info[i].bbox.vmax);
+    }
+    
+    double sahCost[bucketsCount - 1];
+
+    BBox bbox;
+    bbox.makeEmpty();
+    for(int i = 0; i < info.size(); ++i) {
+        bbox.add(info[i].bbox.vmin);
+        bbox.add(info[i].bbox.vmax);
+    }
+    
+    static constexpr double traversalCost = 0.333;
+
+    for (int i = 0; i < bucketsCount - 1; ++i) {
+        BBox b0;
+        b0.makeEmpty();
+        BBox b1;
+        b1.makeEmpty();
+        int count0 = 0;
+        int count1 = 0;
+        
+        for (int j = 0; j <= i; ++j) {
+            b0.add(buckets[j].bbox.vmin);
+            b0.add(buckets[j].bbox.vmax);
+            count0 += buckets[j].nodesCount;
+        }
+        
+        for (int j = i+1; j < bucketsCount; ++j) {
+            b1.add(buckets[j].bbox.vmin);
+            b1.add(buckets[j].bbox.vmax);
+            count1 += buckets[j].nodesCount;
+        }
+        
+        sahCost[i] = traversalCost + (count0 * b0.surfaceArea() + count1 * b1.surfaceArea()) / bbox.surfaceArea();
+    }
+
+    double minCost = sahCost[0];
+    int splitBucket = 0;
+
+    for (int i = 1; i < bucketsCount - 1; ++i) {
+        if (sahCost[i] < minCost) {
+            minCost = sahCost[i];
+            splitBucket = i;
+        }
+    }
+
+    NodeInfo* pmid = std::partition(&info[start],
+                        &info[end-1]+1,
+                        [=](NodeInfo &i) {
+                            int b = int((i.centroid.v[splitAxis] - centroidBbox.vmin.v[splitAxis]) / bucketExtent);
+                            
+                            if (b >= bucketsCount) 
+                                b = bucketsCount - 1;
+                            
+                            if (b < 0)
+                                b = 0;
+                                
+                            return b <= splitBucket;
+                        });
+                        
+    auto mid = pmid - &info[0];
+
+    if(mid == start || mid == end) {
+        BVHNode node;
+        node.bbox = bbox;
+        node.left = node.right = -1;
+        
+        for(auto i = start; i < end; ++i) {
+            node.nodes.push_back(info[i].node);
+        }
+        
+        nodes.push_back(node);
+        
+        return nodes.size() - 1;
+        
+    } 
+
+    
+    BVHNode node;
+    node.left = recursiveBuild(info, start, mid);
+    node.right = recursiveBuild(info, mid, end);
+    node.splitAxis = splitAxis;
+    node.bbox.makeEmpty();
+    node.bbox.add(nodes[node.left].bbox.vmin);
+    node.bbox.add(nodes[node.left].bbox.vmax);
+    node.bbox.add(nodes[node.right].bbox.vmin);
+    node.bbox.add(nodes[node.right].bbox.vmax);
+    
+    nodes.push_back(node);
+    
+    return nodes.size() -  1;
+}
+
+void BVH::build(const std::vector<Node*>& input_nodes)
+{
+    std::vector<NodeInfo> nodeInfo;
+    
+    for(auto i = 0u; i < input_nodes.size(); ++i) {
+        NodeInfo info;
+        info.bbox = input_nodes[i]->worldBbox();
+        info.centroid = info.bbox.centroid();
+        info.node = input_nodes[i];
+        
+        nodeInfo.push_back(info);
+    }
+
+    root = recursiveBuild(nodeInfo, 0, nodeInfo.size());
+}
+
+void BVH::intersect(const Ray& ray, IntersectionInfo& closestIntersection, Node*& closestNode) {
+    closestNode = nullptr;
+	closestIntersection.dist = 1e99;
+	
+    bool rayDirNegSign[3] = {ray.dir.x > 0, ray.dir.y > 0, ray.dir.z > 0};
+    
+    // 2^64 cannot be greater than the addressible memory this should be more than enough. 
+    // We can have at most 2 * (depth - 1) elements in the stack.
+    int stack[128];
+    stack[0] = root;
+    auto stackSize = 1;
+    
+    while(stackSize > 0) {
+        auto currentNode = stack[--stackSize];
+        
+        if(nodes[currentNode].bbox.testIntersect(RRay(ray)) && nodes[currentNode].left != -1 && nodes[currentNode].right != -1) {
+            if(rayDirNegSign[nodes[currentNode].splitAxis]) {
+                stack[stackSize++] = nodes[currentNode].right;
+                stack[stackSize++] = nodes[currentNode].left;
+            }
+            else {
+                stack[stackSize++] = nodes[currentNode].left;
+                stack[stackSize++] = nodes[currentNode].right;
+            }
+        }
+        
+        // Leaf
+        if(nodes[currentNode].nodes.size() > 0) {
+            bool intersection_found = false;
+            
+            for(auto node: nodes[currentNode].nodes) {
+                IntersectionInfo info;
+                if (node->intersect(ray, info) && info.dist < closestIntersection.dist) {
+                    closestIntersection = info;
+                    closestNode = node;
+                    intersection_found = true;
+                }
+            }
+            
+            if(intersection_found) 
+                return;
+        }
+    }
 }
 
 void Scene::beginFrame()

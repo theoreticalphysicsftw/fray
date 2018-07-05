@@ -88,7 +88,7 @@ struct Transform {
 	void translate(const Vector& t);
 	
 	// use the transform:
-	Vector transformPoint(const Vector& t);
+	Vector transformPoint(const Vector& t) const;
 	Vector untransformPoint(const Vector& t);
 	
 	Vector transformDir(const Vector& dir);

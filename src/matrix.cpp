@@ -140,7 +140,7 @@ void Transform::translate(const Vector& t)
 }
 
 // use the transform:
-Vector Transform::transformPoint(const Vector& t)
+Vector Transform::transformPoint(const Vector& t) const
 {
 	return t * m + offset;
 }

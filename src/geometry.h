@@ -28,6 +28,7 @@
 #include <functional>
 #include "matrix.h"
 #include "scene.h"
+#include "bbox.h"
 
 class Geometry;
 struct IntersectionInfo {
@@ -49,6 +50,13 @@ public:
 class Geometry: public Intersectable, public SceneElement {
 public:
 	ElementType getElementType() const { return ELEM_GEOMETRY; }
+    
+    virtual BBox aabb() {
+        BBox b;
+        b.vmin = Vector(0.0, 0.0, 0.0);
+        b.vmax = b.vmin;
+        return b;
+    }
 };
 
 class Plane: public Geometry {
@@ -63,6 +71,13 @@ public:
 		pb.getDoubleProp("limit", &limit);
 	}
 	
+    BBox aabb() override {
+        BBox b;
+        b.vmin = Vector(-limit, height, -limit);
+        b.vmax = Vector(limit, height, limit);
+        return b;
+    }
+    
 	bool intersect(const Ray& ray, IntersectionInfo& info) override;
 };
 
@@ -83,6 +98,18 @@ public:
 		pb.getDoubleProp("R", &R);
 	}
 	
+    BBox aabb() override {
+        BBox b;
+        
+        static constexpr double sqrt2 = 1.414213562373095;
+        
+        Vector shift = R * sqrt2 * Vector(1.0, 1.0, 1.0);
+        b.vmin = O - shift;
+        b.vmax = O + shift;
+        
+        return b;
+    }
+    
 	bool intersect(const Ray& ray, IntersectionInfo& info) override;
 };
 
@@ -106,6 +133,16 @@ public:
 		pb.getVectorProp("O", &O);
 		pb.getDoubleProp("halfSide", &halfSide);
 	}
+    
+    BBox aabb() override {
+        BBox b;
+        
+        Vector shift = halfSide * Vector(1.0, 1.0, 1.0);
+        b.vmin = O - shift;
+        b.vmax = O + shift;
+        
+        return b;
+    }
 	
 	bool intersect(const Ray& ray, IntersectionInfo& info) override;
 	
@@ -163,7 +200,11 @@ struct Node: public Intersectable, public SceneElement {
 
 	// from Intersectable:
 	bool intersect(const Ray& ray, IntersectionInfo& info) override;
-
+    
+    BBox worldBbox() {
+        return geometry->aabb().toWorld(T);
+    }
+    
 	// from SceneElement:
 	ElementType getElementType() const { return ELEM_NODE; }
 	void fillProperties(ParsedBlock& pb)

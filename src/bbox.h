@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <string>
 #include "vector.h"
+#include "matrix.h"
 #include "util.h"
 using std::min;
 using std::max;
@@ -45,7 +46,7 @@ struct RRay: Ray {
 	// Ray with rdir; used for quicker intersection tests
 	Vector rdir;
 	RRay() {}
-	explicit RRay(const Ray& r): Ray(r) {}
+	explicit RRay(const Ray& r): Ray(r) {prepareForTracing();}
 	void prepareForTracing()
 	{
 		rdir.x = fabs(dir.x) > 1e-12 ? 1.0 / dir.x : 1e12;
@@ -67,6 +68,26 @@ struct BBox {
 		vmin.set(+INF, +INF, +INF);
 		vmax.set(-INF, -INF, -INF);
 	}
+    
+    inline BBox toWorld(const Transform& T) {
+        BBox transformed;
+        
+        transformed.vmin = T.transformPoint(vmin);
+        transformed.vmax = T.transformPoint(vmax);
+        
+        return transformed;
+    };
+    
+    inline Vector centroid() {
+        return 0.5 * (vmin + vmax);
+    }
+    
+    inline double surfaceArea() {
+        auto diag = vmax - vmin;
+        
+        return 2 * (diag.x * diag.y + diag.x * diag.z + diag.y * diag.z);
+    };
+    
 	/// add a point to the bounding box, possibly expanding it. If the point is inside the current box, nothing happens.
 	/// if it is outside, the box grows just enough so that in encompasses the new point.
 	inline void add(const Vector& vec)

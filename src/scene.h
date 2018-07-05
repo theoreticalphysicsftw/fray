@@ -28,6 +28,8 @@
 #include <limits.h>
 #include "color.h"
 #include "vector.h"
+#include "bbox.h"
+
 
 enum ElementType {
 	ELEM_GEOMETRY,
@@ -40,6 +42,7 @@ enum ElementType {
 	ELEM_LIGHT,
 };
 
+class IntersectionInfo;
 class SceneParser;
 class Geometry;
 class Intersectable;
@@ -277,6 +280,33 @@ struct GlobalSettings: public SceneElement {
 	bool needAApass();
 };
 
+struct NodeInfo
+{
+    BBox bbox;
+    Vector centroid;
+    Node* node;
+};
+
+struct BVHNode {
+    std::vector<Node*> nodes;
+    BBox bbox;
+    int splitAxis;
+    int left;
+    int right;
+};
+
+struct BVH {
+    std::vector<BVHNode> nodes;
+    
+    int root;
+    
+    void build(const std::vector<Node*>& nodes);
+    
+    int recursiveBuild(std::vector<NodeInfo>& info, uint start, uint end);
+    
+    void intersect(const Ray& ray, IntersectionInfo& info, Node *& node);
+};
+
 struct Scene {
 	std::vector<Geometry*> geometries;
 	std::vector<Shader*> shaders;
@@ -284,6 +314,7 @@ struct Scene {
 	std::vector<Node*> superNodes; // also Nodes, but without a shader attached; don't represent an scene object directly
 	std::vector<Texture*> textures;
 	std::vector<Light*> lights;
+    BVH bvh;
 	Environment* environment;
 	Camera* camera;
 	GlobalSettings settings;

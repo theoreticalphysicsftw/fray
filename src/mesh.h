@@ -91,7 +91,11 @@ public:
 		pb.getBoolProp("useKDTree", &useKD);
 	}
 
-
+    
+    BBox aabb() override {
+        return bbox;
+    }
+    
 	bool loadFromOBJ(const char* filename);
 
 	void beginRender() override;

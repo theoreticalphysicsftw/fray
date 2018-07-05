@@ -51,7 +51,7 @@ using namespace std;
 
 ThreadPool pool;
 Color vfb[VFB_MAX_SIZE][VFB_MAX_SIZE];
-char sceneFile[256] = "data/forest.fray";
+char sceneFile[256] = "data/bvh_test.fray";
 const double offsets[5][2] = {
 	{ 0, 0 }, 
 	{ 0.6, 0 },
@@ -251,6 +251,7 @@ Color raytrace(const Ray& ray)
 	IntersectionInfo closestIntersection;
 	closestIntersection.dist = 1e99;
 	
+    /*
 	for (auto node: scene.nodes) {
 		IntersectionInfo info;
 		if (node->intersect(ray, info) && info.dist < closestIntersection.dist) {
@@ -258,6 +259,9 @@ Color raytrace(const Ray& ray)
 			closestNode = node;
 		}
 	}
+    */
+
+    scene.bvh.intersect(ray, closestIntersection, closestNode);
 	
 	bool hitLight = false;
 	Light* intersectedLight = nullptr;
